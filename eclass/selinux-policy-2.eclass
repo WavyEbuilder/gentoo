@@ -28,8 +28,9 @@ _SELINUX_POLICY_2_ECLASS=1
 
 # @ECLASS_VARIABLE: MODS
 # @DESCRIPTION:
-# This variable contains the (upstream) module name for the SELinux module.
-# This name is only the module name, not the category!
+# This variable contains the (upstream) module name(s) for the SELinux module(s).
+# The variable can be both a simple string (space-separated) or a bash array.
+# This should only include the module name(s), not the category!
 : "${MODS:="_illegal"}"
 
 # @ECLASS_VARIABLE: BASEPOL
@@ -172,7 +173,7 @@ selinux-policy-2_src_unpack() {
 # then apply the additional patches as offered by the ebuild.
 #
 # Next, extract only those files needed for this particular module (i.e. the .te
-# and .fc files for the given module in the MODS variable).
+# and .fc files for the given module(s) in the MODS variable).
 #
 # Finally, prepare the build environments for each of the supported SELinux
 # types (such as targeted or strict), depending on the POLICY_TYPES variable
@@ -215,7 +216,7 @@ selinux-policy-2_src_prepare() {
 	fi
 
 	# Collect only those files needed for this particular module
-	for i in ${MODS}; do
+	for i in ${MODS[@]}; do
 		modfiles="$(find "${S}/refpolicy/policy/modules" -iname $i.te) $modfiles"
 		modfiles="$(find "${S}/refpolicy/policy/modules" -iname $i.fc) $modfiles"
 		modfiles="$(find "${S}/refpolicy/policy/modules" -iname $i.cil) $modfiles"
@@ -295,7 +296,8 @@ selinux-policy-2_src_install() {
 	local BASEDIR="/usr/share/selinux"
 
 	_selinux_install_modules() {
-		for i in ${MODS}; do
+		local i
+		for i in "${MODS[@]}"; do
 			einfo "Installing ${1} ${i} policy package"
 			insinto ${BASEDIR}/${1}
 			if [[ -f "${S}/${1}/${i}.pp" ]] ; then
@@ -335,53 +337,62 @@ selinux-policy-2_pkg_postinst() {
 		root_opts="-p ${ROOT} -n"
 	fi
 
-	# build up the command in the case of multiple modules
-	local COMMAND
-
 	_selinux_postinst() {
-		if [[ "${1}" == "strict" ]] && [[ "${MODS}" = "unconfined" ]]; then
-			einfo "Ignoring loading of unconfined module in strict module store.";
-			continue;
-		fi
+		# Build up the command in the case of multiple modules
+		local COMMAND="semodule ${root_opts} -s ${1} -i"
 
-		einfo "Inserting the following modules into the $i module store: ${MODS}"
+		einfo "Inserting the following modules into the $i module store: ${MODS[*]}"
 
 		cd "${ROOT}/usr/share/selinux/${1}" || die "Could not enter /usr/share/selinux/${1}"
-		for i in ${MODS} ; do
-			if [[ -f "${i}.pp" ]] ; then
-				COMMAND="${i}.pp ${COMMAND}"
-			elif [[ -f "${i}.cil" ]] ; then
-				COMMAND="${i}.cil ${COMMAND}"
+
+		local mod
+		local count=0
+		for mod in "${MODS[@]}"; do
+			if [[ "${1}" = "strict" && ${mod} = "unconfined" ]]; then
+				einfo "Ignoring loading of unconfined module in strict module store."
+				continue
 			fi
+			if [[ -f "${mod}.pp" ]]; then
+				COMMAND+=" ${mod}.pp"
+				count=$((count+1))
+				continue
+			fi
+			if [[ -f "${mod}.cil" ]]; then
+				COMMAND+=" ${mod}.cil"
+				count=$((count+1))
+				continue
+			fi
+			die "Module ${mod} not found"
 		done
 
-		semodule ${root_opts} -s ${1} -i ${COMMAND}
-		if [[ $? -ne 0 ]]; then
-			ewarn "SELinux module load failed. Trying full reload...";
+		# No modules to install
+		[[ ${count} -le 0 ]] && return
 
-			semodule ${root_opts} -s ${1} -i *.pp
-
-			if [[ $? -ne 0 ]]; then
-				ewarn "Failed to reload SELinux policies."
-				ewarn ""
-				ewarn "If this is *not* the last SELinux module package being installed,"
-				ewarn "then you can safely ignore this as the reloads will be retried"
-				ewarn "with other, recent modules."
-				ewarn ""
-				ewarn "If it is the last SELinux module package being installed however,"
-				ewarn "then it is advised to look at the error above and take appropriate"
-				ewarn "action since the new SELinux policies are not loaded until the"
-				ewarn "command finished successfully."
-				ewarn ""
-				ewarn "To reload, run the following command:"
-				ewarn "  semodule -i /usr/share/selinux/${1}/*.pp"
-			else
-				einfo "SELinux modules reloaded successfully."
-			fi
-		else
+		if ${COMMAND}; then
 			einfo "SELinux modules loaded successfully."
+			return
 		fi
-		COMMAND="";
+
+		ewarn "SELinux module load failed. Trying full reload..."
+
+		if semodule ${root_opts} -s "${1}" -i *.pp; then
+			einfo "SELinux modules reloaded successfully."
+			return
+		fi
+
+		ewarn "Failed to reload SELinux policies."
+		ewarn ""
+		ewarn "If this is *not* the last SELinux module package being installed,"
+		ewarn "then you can safely ignore this as the reloads will be retried"
+		ewarn "with other, recent modules."
+		ewarn ""
+		ewarn "If it is the last SELinux module package being installed however,"
+		ewarn "then it is advised to look at the error above and take appropriate"
+		ewarn "action since the new SELinux policies are not loaded until the"
+		ewarn "command finished successfully."
+		ewarn ""
+		ewarn "To reload, run the following command:"
+		ewarn "  semodule -i /usr/share/selinux/${1}/*.pp"
 	}
 
 	if [[ ${EAPI} == 7 ]]; then
@@ -425,13 +436,14 @@ selinux-policy-2_pkg_postrm() {
 		fi
 
 		# build up the command in the case of multiple modules
+		local mod
 		local COMMAND
-		for i in ${MODS}; do
-			COMMAND="-r ${i} ${COMMAND}"
+		for mod in ${MODS[@]}; do
+			COMMAND="-r ${mod} ${COMMAND}"
 		done
 
 		_selinux_postrm() {
-			einfo "Removing the following modules from the $1 module store: ${MODS}"
+			einfo "Removing the following modules from the $1 module store: ${MODS[@]}"
 
 			semodule ${root_opts} -s ${1} ${COMMAND}
 			if [[ $? -ne 0 ]]; then
