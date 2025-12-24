@@ -420,42 +420,44 @@ selinux-policy-2_pkg_postinst() {
 # deactivating the policy on the system.
 selinux-policy-2_pkg_postrm() {
 	# Only if we are not upgrading
-	if [[ -z "${REPLACED_BY_VERSION}" ]]; then
-		# Set root path and don't load policy into the kernel when cross compiling
-		local root_opts=""
-		if [[ -n ${ROOT} ]]; then
-			root_opts="-p ${ROOT} -n"
-		fi
+	if [[ -n "${REPLACED_BY_VERSION}" ]]; then
+		return
+	fi
 
-		# build up the command in the case of multiple modules
-		local mod
-		local COMMAND
-		for mod in ${MODS[@]}; do
-			COMMAND="-r ${mod} ${COMMAND}"
-		done
+	# Set root path and don't load policy into the kernel when cross compiling
+	local root_opts=""
+	if [[ -n ${ROOT} ]]; then
+		root_opts="-p ${ROOT} -n"
+	fi
 
-		_selinux_postrm() {
-			einfo "Removing the following modules from the $1 module store: ${MODS[@]}"
+	# build up the command in the case of multiple modules
+	local mod
+	local COMMAND
+	for mod in ${MODS[@]}; do
+		COMMAND="-r ${mod} ${COMMAND}"
+	done
 
-			semodule ${root_opts} -s ${1} ${COMMAND}
-			if [[ $? -ne 0 ]]; then
-				ewarn "SELinux module unload failed."
-			else
-				einfo "SELinux modules unloaded successfully."
-			fi
-		}
+	_selinux_postrm() {
+		einfo "Removing the following modules from the $1 module store: ${MODS[@]}"
 
-		if [[ ${EAPI} = 7 ]]; then
-			for i in ${POLICY_TYPES}; do
-				_selinux_postrm $i
-			done
+		semodule ${root_opts} -s ${1} ${COMMAND}
+		if [[ $? -ne 0 ]]; then
+			ewarn "SELinux module unload failed."
 		else
-			for i in targeted strict mcs mls; do
-				if use selinux_policy_types_${i}; then
-					_selinux_postrm $i
-				fi
-			done
+			einfo "SELinux modules unloaded successfully."
 		fi
+	}
+
+	if [[ ${EAPI} = 7 ]]; then
+		for i in ${POLICY_TYPES}; do
+			_selinux_postrm $i
+		done
+	else
+		for i in targeted strict mcs mls; do
+			if use selinux_policy_types_${i}; then
+				_selinux_postrm $i
+			fi
+		done
 	fi
 }
 
