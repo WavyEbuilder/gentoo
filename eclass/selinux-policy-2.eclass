@@ -290,9 +290,9 @@ selinux-policy-2_src_install() {
 			einfo "Installing ${1} ${i} policy package"
 			insinto "${BASEDIR}/${1}"
 			if [[ -f "${S}/${1}/${i}.pp" ]]; then
-			  doins "${S}/${1}/${i}.pp" || die "Failed to add ${i}.pp to ${1}"
+				doins "${S}/${1}/${i}.pp" || die "Failed to add ${i}.pp to ${1}"
 			elif [[ -f "${S}/${1}/${i}.cil" ]]; then
-			  doins "${S}/${1}/${i}.cil" || die "Failed to add ${i}.cil to ${1}"
+				doins "${S}/${1}/${i}.cil" || die "Failed to add ${i}.cil to ${1}"
 			fi
 
 			if [[ "${POLICY_FILES[@]}" = *"${i}.if"* ]]; then
