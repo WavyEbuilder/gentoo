@@ -321,50 +321,45 @@ selinux-policy-2_src_install() {
 # activating the policy on the system.
 selinux-policy-2_pkg_postinst() {
 	# Set root path and don't load policy into the kernel when cross compiling
-	local root_opts=""
+	local root_opts=()
 	if [[ -n ${ROOT} ]]; then
-		root_opts="-p ${ROOT} -n"
+		root_opts=( '-p' "${ROOT}" '-n' )
 	fi
 
 	_selinux_postinst() {
-		# Build up the command in the case of multiple modules
-		local COMMAND="semodule ${root_opts} -s ${1} -i"
-
 		einfo "Inserting the following modules into the ${i} module store: ${MODS[*]}"
 
 		cd "${ROOT}/usr/share/selinux/${1}" || die "Could not enter /usr/share/selinux/${1}"
 
 		local mod
-		local count=0
+		local modfiles=()
 		for mod in "${MODS[@]}"; do
 			if [[ "${1}" = "strict" && ${mod} = "unconfined" ]]; then
 				einfo "Ignoring loading of unconfined module in strict module store."
 				continue
 			fi
 			if [[ -f "${mod}.pp" ]]; then
-				COMMAND+=" ${mod}.pp"
-				count=$((count+1))
+				modfiles+=( "${mod}.pp" )
 				continue
 			fi
 			if [[ -f "${mod}.cil" ]]; then
-				COMMAND+=" ${mod}.cil"
-				count=$((count+1))
+				modfiles+=( "${mod}.cil" )
 				continue
 			fi
 			die "Module ${mod} not found"
 		done
 
 		# No modules to install
-		[[ ${count} -le 0 ]] && return
+		[[ "${#modules[@]}" -eq 0 ]] && return
 
-		if ${COMMAND}; then
+		if semodule "${root_opts[@]}" -s "${1}" -i "${modfiles[@]}"; then
 			einfo "SELinux modules loaded successfully."
 			return
 		fi
 
 		ewarn "SELinux module load failed. Trying full reload..."
 
-		if semodule ${root_opts} -s "${1}" -i *.pp; then
+		if semodule "${root_opts[@]}" -s "${1}" -i *.pp; then
 			einfo "SELinux modules reloaded successfully."
 			return
 		fi
@@ -445,26 +440,18 @@ selinux-policy-2_pkg_postrm() {
 	fi
 
 	# Set root path and don't load policy into the kernel when cross compiling
-	local root_opts=""
+	local root_opts=()
 	if [[ -n ${ROOT} ]]; then
-		root_opts="-p ${ROOT} -n"
+		root_opts=( '-p' "${ROOT}" '-n' )
 	fi
 
-	# build up the command in the case of multiple modules
-	local mod
-	local COMMAND
-	for mod in "${MODS[@]}"; do
-		COMMAND="-r ${mod} ${COMMAND}"
-	done
-
 	_selinux_postrm() {
-		einfo "Removing the following modules from the $1 module store: ${MODS[*]}"
+		einfo "Removing the following modules from the ${1} module store: ${MODS[*]}"
 
-		semodule ${root_opts} -s "${1}" ${COMMAND}
-		if [[ $? -ne 0 ]]; then
-			ewarn "SELinux module unload failed."
-		else
+		if semodule "${root_opts[@]}" -s "${1}" -r ${MODS[@]}; then
 			einfo "SELinux modules unloaded successfully."
+		else
+			ewarn "SELinux module unload failed."
 		fi
 	}
 
