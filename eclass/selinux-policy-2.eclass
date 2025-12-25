@@ -399,15 +399,27 @@ selinux-policy-2_pkg_postinst() {
 	# Don't relabel when cross compiling
 	if [[ -z ${ROOT} ]]; then
 		# Relabel depending packages
-		local PKGSET=""
+		local PKGSET=()
 		if [[ -x /usr/bin/qdepends ]]; then
-			PKGSET=$(/usr/bin/qdepends -Cq -r -Q "${CATEGORY}/${PN}" | grep -v "sec-policy/selinux-")
+			PKGSET=( $(/usr/bin/qdepends -CiqqrF '=%[CATEGORY]%[PN]%[SLOT]' -Q "${CATEGORY}/${PN}" | grep -v 'sec-policy/selinux-') )
+			if [[ $? -ne 0 ]]; then
+				ewarn "Failed to calculate reverse dependencies for policy: qdepends returned ${?}."
+				ewarn "Skipping package file relabelling..."
+				return
+			fi
 		elif [[ -x /usr/bin/equery ]]; then
-			PKGSET=$(/usr/bin/equery -Cq depends "${CATEGORY}/${PN}" | grep -v "sec-policy/selinux-")
+			PKGSET=( $(/usr/bin/equery -Cq depends "${CATEGORY}/${PN}" | grep -v 'sec-policy/selinux-') )
+			if [[ $? -ne 0 ]]; then
+				ewarn "Failed to calculate reverse dependencies for policy: equery returned ${?}."
+				ewarn "Skipping package file relabelling..."
+				return
+			fi
+		else
+			ewarn "Unable to calculate reverse dependencies for policy: both qdepends and equery were not found."
+			ewarn "Skipping package file relabelling..."
+			return
 		fi
-		if [[ -n "${PKGSET}" ]]; then
-			rlpkg ${PKGSET}
-		fi
+		[[ ${#PKGSET[@]} -ne 0 ]] && rlpkg "${PKGSET[@]}"
 	fi
 }
 
